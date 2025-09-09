@@ -75,41 +75,6 @@ export const UploadFlow = ({ onBack }: UploadFlowProps) => {
     return { x, y };
   }, []);
 
-  const handleCanvasClick = useCallback((event: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isDrawingMode || polygon.isComplete) return;
-    
-    const coords = getCanvasCoordinates(event.clientX, event.clientY);
-    const newPoint: Point = {
-      x: coords.x,
-      y: coords.y,
-      id: polygon.points.length + 1
-    };
-    
-    setPolygon(prev => ({
-      ...prev,
-      points: [...prev.points, newPoint]
-    }));
-  }, [isDrawingMode, polygon.isComplete, polygon.points.length, getCanvasCoordinates]);
-
-  const handleCanvasTouch = useCallback((event: React.TouchEvent<HTMLCanvasElement>) => {
-    if (!isDrawingMode || polygon.isComplete) return;
-    
-    event.preventDefault();
-    event.stopPropagation();
-    
-    const touch = event.touches[0];
-    const coords = getCanvasCoordinates(touch.clientX, touch.clientY);
-    const newPoint: Point = {
-      x: coords.x,
-      y: coords.y,
-      id: polygon.points.length + 1
-    };
-    
-    setPolygon(prev => ({
-      ...prev,
-      points: [...prev.points, newPoint]
-    }));
-  }, [isDrawingMode, polygon.isComplete, polygon.points.length, getCanvasCoordinates]);
 
   const finishPolygon = useCallback(() => {
     if (polygon.points.length < 3) {
@@ -326,8 +291,24 @@ export const UploadFlow = ({ onBack }: UploadFlowProps) => {
                   />
                   <canvas
                     ref={canvasRef}
-                    onClick={handleCanvasClick}
-                    onTouchStart={handleCanvasTouch}
+                    onPointerDown={(event) => {
+                      if (!isDrawingMode || polygon.isComplete) return;
+                      
+                      event.preventDefault();
+                      event.stopPropagation();
+                      
+                      const coords = getCanvasCoordinates(event.clientX, event.clientY);
+                      const newPoint: Point = {
+                        x: coords.x,
+                        y: coords.y,
+                        id: polygon.points.length + 1
+                      };
+                      
+                      setPolygon(prev => ({
+                        ...prev,
+                        points: [...prev.points, newPoint]
+                      }));
+                    }}
                     className="touch-none select-none w-full"
                     style={{ 
                       cursor: isDrawingMode ? 'crosshair' : 'default',
