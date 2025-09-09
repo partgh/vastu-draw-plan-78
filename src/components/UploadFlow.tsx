@@ -95,6 +95,8 @@ export const UploadFlow = ({ onBack }: UploadFlowProps) => {
     if (!isDrawingMode || polygon.isComplete) return;
     
     event.preventDefault();
+    event.stopPropagation();
+    
     const touch = event.touches[0];
     const coords = getCanvasCoordinates(touch.clientX, touch.clientY);
     const newPoint: Point = {
@@ -142,8 +144,6 @@ export const UploadFlow = ({ onBack }: UploadFlowProps) => {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     
-    const dpr = window.devicePixelRatio || 1;
-    
     // Clear canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
@@ -151,7 +151,7 @@ export const UploadFlow = ({ onBack }: UploadFlowProps) => {
     if (imageRef.current) {
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
-      ctx.drawImage(imageRef.current, 0, 0, canvas.width / dpr, canvas.height / dpr);
+      ctx.drawImage(imageRef.current, 0, 0, canvas.width, canvas.height);
     }
     
     // Draw polygon lines
@@ -308,16 +308,14 @@ export const UploadFlow = ({ onBack }: UploadFlowProps) => {
                           canvasWidth = maxHeight * aspectRatio;
                         }
                         
-                        // Set high DPI for crisp image quality
-                        const dpr = window.devicePixelRatio || 1;
-                        canvas.width = canvasWidth * dpr;
-                        canvas.height = canvasHeight * dpr;
+                        // Simplified canvas setup without DPR scaling
+                        canvas.width = canvasWidth;
+                        canvas.height = canvasHeight;
                         canvas.style.width = `${canvasWidth}px`;
                         canvas.style.height = `${canvasHeight}px`;
                         
                         const ctx = canvas.getContext('2d');
                         if (ctx) {
-                          ctx.scale(dpr, dpr);
                           ctx.imageSmoothingEnabled = true;
                           ctx.imageSmoothingQuality = 'high';
                         }
