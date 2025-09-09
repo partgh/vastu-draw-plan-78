@@ -66,13 +66,13 @@ export const UploadFlow = ({ onBack }: UploadFlowProps) => {
     
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
     
-    return {
-      x: (clientX - rect.left) * scaleX,
-      y: (clientY - rect.top) * scaleY
-    };
+    // Calculate coordinates relative to the visual canvas size
+    // Since we're drawing in a DPR-scaled context, we need visual coordinates
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+    
+    return { x, y };
   }, []);
 
   const handleCanvasClick = useCallback((event: React.MouseEvent<HTMLCanvasElement>) => {
