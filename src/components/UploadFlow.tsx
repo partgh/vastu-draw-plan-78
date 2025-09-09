@@ -51,12 +51,36 @@ export const UploadFlow = ({ onBack }: UploadFlowProps) => {
   const calculateCenterPoint = useCallback((points: Point[]): Point => {
     if (points.length === 0) return { x: 0, y: 0, id: -1 };
     
-    const sumX = points.reduce((sum, point) => sum + point.x, 0);
-    const sumY = points.reduce((sum, point) => sum + point.y, 0);
+    // Calculate geometric center (centroid) of polygon
+    let area = 0;
+    let centerX = 0;
+    let centerY = 0;
+    
+    for (let i = 0; i < points.length; i++) {
+      const j = (i + 1) % points.length;
+      const factor = points[i].x * points[j].y - points[j].x * points[i].y;
+      area += factor;
+      centerX += (points[i].x + points[j].x) * factor;
+      centerY += (points[i].y + points[j].y) * factor;
+    }
+    
+    area /= 2;
+    const absoluteArea = Math.abs(area);
+    
+    if (absoluteArea === 0) {
+      // Fallback to arithmetic mean if area is zero
+      const sumX = points.reduce((sum, point) => sum + point.x, 0);
+      const sumY = points.reduce((sum, point) => sum + point.y, 0);
+      return {
+        x: sumX / points.length,
+        y: sumY / points.length,
+        id: -1
+      };
+    }
     
     return {
-      x: sumX / points.length,
-      y: sumY / points.length,
+      x: centerX / (6 * area),
+      y: centerY / (6 * area),
       id: -1
     };
   }, []);
@@ -68,7 +92,6 @@ export const UploadFlow = ({ onBack }: UploadFlowProps) => {
     const rect = canvas.getBoundingClientRect();
     
     // Calculate coordinates relative to the visual canvas size
-    // Since we're drawing in a DPR-scaled context, we need visual coordinates
     const x = clientX - rect.left;
     const y = clientY - rect.top;
     
@@ -273,17 +296,26 @@ export const UploadFlow = ({ onBack }: UploadFlowProps) => {
                           canvasWidth = maxHeight * aspectRatio;
                         }
                         
-                        // Simplified canvas setup without DPR scaling
-                        canvas.width = canvasWidth;
-                        canvas.height = canvasHeight;
-                        canvas.style.width = `${canvasWidth}px`;
-                        canvas.style.height = `${canvasHeight}px`;
-                        
-                        const ctx = canvas.getContext('2d');
-                        if (ctx) {
-                          ctx.imageSmoothingEnabled = true;
-                          ctx.imageSmoothingQuality = 'high';
-                        }
+                         // Use device pixel ratio for high quality rendering
+                         const dpr = window.devicePixelRatio || 1;
+                         const displayWidth = canvasWidth;
+                         const displayHeight = canvasHeight;
+                         
+                         // Set actual canvas resolution (high DPI)
+                         canvas.width = displayWidth * dpr;
+                         canvas.height = displayHeight * dpr;
+                         
+                         // Scale canvas display size to fit container
+                         canvas.style.width = `${displayWidth}px`;
+                         canvas.style.height = `${displayHeight}px`;
+                         
+                         const ctx = canvas.getContext('2d');
+                         if (ctx) {
+                           // Scale context to match DPR for crisp rendering
+                           ctx.scale(dpr, dpr);
+                           ctx.imageSmoothingEnabled = true;
+                           ctx.imageSmoothingQuality = 'high';
+                         }
                         
                         drawCanvas();
                       }
