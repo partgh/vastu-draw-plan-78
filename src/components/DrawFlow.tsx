@@ -39,16 +39,25 @@ export const DrawFlow = ({ onBack }: DrawFlowProps) => {
           </h1>
         </div>
 
-        {/* Canvas Only View */}
-        <Card className="h-[calc(100vh-140px)]">
-          <CardContent className="p-0 h-full">
-            <DrawingCanvas
-              ref={canvasApiRef}
-              key={canvasKey}
-              generatedRooms={generatedRooms}
-            />
-          </CardContent>
-        </Card>
+        <div className="grid lg:grid-cols-4 gap-6">
+          <Card className="lg:col-span-1 h-fit">
+            <CardContent className="p-6 space-y-6">
+              <DimensionInput onGenerateMap={handleGenerateMap} />
+            </CardContent>
+          </Card>
+
+          <div className="lg:col-span-3">
+            <Card className="h-full">
+              <CardContent className="p-0">
+                <DrawingCanvas
+                  ref={canvasApiRef}
+                  key={canvasKey}
+                  generatedRooms={generatedRooms}
+                />
+              </CardContent>
+            </Card>
+          </div>
+        </div>
       </div>
     </div>
   );
