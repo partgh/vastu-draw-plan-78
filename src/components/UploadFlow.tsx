@@ -49,14 +49,40 @@ export const UploadFlow = ({ onBack }: UploadFlowProps) => {
   };
 
   const calculateCenterPoint = useCallback((points: Point[]): Point => {
-    if (points.length === 0) return { x: 0, y: 0, id: -1 };
-    
-    const sumX = points.reduce((sum, point) => sum + point.x, 0);
-    const sumY = points.reduce((sum, point) => sum + point.y, 0);
-    
+    const n = points.length;
+    if (n === 0) return { x: 0, y: 0, id: -1 };
+    if (n < 3) {
+      const avg = points.reduce(
+        (acc, p) => ({ x: acc.x + p.x, y: acc.y + p.y }),
+        { x: 0, y: 0 }
+      );
+      return { x: avg.x / n, y: avg.y / n, id: -1 };
+    }
+
+    let twiceArea = 0; // 2 * signed area
+    let cx = 0;
+    let cy = 0;
+
+    for (let i = 0; i < n; i++) {
+      const { x: xi, y: yi } = points[i];
+      const { x: xj, y: yj } = points[(i + 1) % n];
+      const cross = xi * yj - xj * yi;
+      twiceArea += cross;
+      cx += (xi + xj) * cross;
+      cy += (yi + yj) * cross;
+    }
+
+    if (Math.abs(twiceArea) < 1e-7) {
+      const avg = points.reduce(
+        (acc, p) => ({ x: acc.x + p.x, y: acc.y + p.y }),
+        { x: 0, y: 0 }
+      );
+      return { x: avg.x / n, y: avg.y / n, id: -1 };
+    }
+
     return {
-      x: sumX / points.length,
-      y: sumY / points.length,
+      x: cx / (3 * twiceArea),
+      y: cy / (3 * twiceArea),
       id: -1
     };
   }, []);
