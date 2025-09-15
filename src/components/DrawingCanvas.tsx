@@ -9,16 +9,60 @@ import { Button } from "@/components/ui/button";
 import { ZoomIn as ZoomInIcon, ZoomOut as ZoomOutIcon } from "lucide-react";
 
 interface DrawingCanvasProps {
+  activeTool: "select" | "rectangle" | "circle" | "line" | "pen" | "text" | "area";
   generatedRooms?: Room[];
+  canvasHistory: string[];
+  historyIndex: number;
+  onCanvasChange: (stateJSON: string) => void;
 }
 
 export interface DrawingCanvasHandle {
-  // Simplified interface - no interactive tools needed
+  zoomIn: () => void;
+  zoomOut: () => void;
+  exportPNGCropped: () => string | null;
 }
 
 export const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>(({ 
-  generatedRooms = []
+  activeTool,
+  generatedRooms = [],
+  canvasHistory,
+  historyIndex,
+  onCanvasChange
 }: DrawingCanvasProps, ref) => {
+  const isMobile = useIsMobile();
+  
+  // Force mobile polygon canvas for area tool on any screen size for debugging
+  const forcePolygonCanvas = activeTool === "area";
+  
+  console.log('DrawingCanvas - activeTool:', activeTool, 'forcePolygonCanvas:', forcePolygonCanvas); // Debug log
+  
+  if (forcePolygonCanvas) {
+    console.log('Rendering MobilePolygonCanvas for area tool');
+    return (
+      <MobilePolygonCanvas
+        ref={ref}
+        activeTool={activeTool}
+        generatedRooms={generatedRooms}
+        canvasHistory={canvasHistory}
+        historyIndex={historyIndex}
+        onCanvasChange={onCanvasChange}
+      />
+    );
+  }
+  
+  // Use responsive canvas for other mobile tools
+  if (isMobile) {
+    return (
+      <ResponsiveDrawingCanvas
+        ref={ref}
+        activeTool={activeTool}
+        generatedRooms={generatedRooms}
+        canvasHistory={canvasHistory}
+        historyIndex={historyIndex}
+        onCanvasChange={onCanvasChange}
+      />
+    );
+  }
   const SCALE_PX_PER_FT = 20; // Match Canvas Designer (20px = 1ft)
   const GRID_FT = 400; // 400 x 400 ft minimum area
   const CANVAS_SIZE = GRID_FT * SCALE_PX_PER_FT; // pixels
@@ -31,7 +75,59 @@ export const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>
   const topRulerRef = useRef<HTMLCanvasElement>(null);
   const leftRulerRef = useRef<HTMLCanvasElement>(null);
 
-  useImperativeHandle(ref, () => ({}), []);
+  useImperativeHandle(ref, () => ({
+    zoomIn: () => {
+      if (!fabricCanvas) return;
+      const container = scrollContainerRef.current;
+      if (!container) return;
+
+      const centerX = container.clientWidth / 2 + container.scrollLeft;
+      const centerY = container.clientHeight / 2 + container.scrollTop;
+
+      const zoom = Math.min(fabricCanvas.getZoom() * 1.1, 4);
+      fabricCanvas.zoomToPoint({ x: centerX, y: centerY } as any, zoom);
+      requestAnimationFrame(() => ensureOriginVisible());
+      fabricCanvas.renderAll();
+    },
+    zoomOut: () => {
+      if (!fabricCanvas) return;
+      const container = scrollContainerRef.current;
+      if (!container) return;
+
+      const centerX = container.clientWidth / 2 + container.scrollLeft;
+      const centerY = container.clientHeight / 2 + container.scrollTop;
+
+      const zoom = Math.max(fabricCanvas.getZoom() / 1.1, 0.1);
+      fabricCanvas.zoomToPoint({ x: centerX, y: centerY } as any, zoom);
+      requestAnimationFrame(() => ensureOriginVisible());
+      fabricCanvas.renderAll();
+    },
+    exportPNGCropped: () => {
+      if (!fabricCanvas) return null;
+      const objs = fabricCanvas.getObjects();
+      if (objs.length === 0) return null;
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      objs.forEach((obj: any) => {
+        const rect = obj.getBoundingRect(true, true);
+        minX = Math.min(minX, rect.left);
+        minY = Math.min(minY, rect.top);
+        maxX = Math.max(maxX, rect.left + rect.width);
+        maxY = Math.max(maxY, rect.top + rect.height);
+      });
+      const left = Math.max(minX - 10, 0);
+      const top = Math.max(minY - 10, 0);
+      const width = Math.max(maxX - minX + 20, 1);
+      const height = Math.max(maxY - minY + 20, 1);
+      return fabricCanvas.toDataURL({
+        left,
+        top,
+        width,
+        height,
+        format: "png",
+        multiplier: 2,
+      } as any);
+    },
+  }), [fabricCanvas]);
 
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -42,10 +138,29 @@ export const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>
       backgroundColor: "transparent",
     });
 
-    // Disable interactions - canvas is view-only
-    canvas.selection = false;
-    canvas.hoverCursor = 'default';
-    canvas.moveCursor = 'default';
+    // Wait for canvas to be fully initialized before setting brush properties
+    setTimeout(() => {
+      if (canvas.freeDrawingBrush) {
+        canvas.freeDrawingBrush.color = "#2563eb";
+        canvas.freeDrawingBrush.width = 3;
+      }
+    }, 0);
+
+    // Save canvas state on path creation (drawing completion)
+    canvas.on('path:created', () => {
+      setTimeout(() => onCanvasChange(JSON.stringify(canvas.toJSON())), 10);
+    });
+
+    // Save canvas state on object modification
+    canvas.on('object:modified', () => {
+      onCanvasChange(JSON.stringify(canvas.toJSON()));
+    });
+
+    // Disable mouse wheel zoom - zoom only with buttons
+    canvas.on('mouse:wheel', (opt: any) => {
+      opt.e.preventDefault();
+      opt.e.stopPropagation();
+    });
 
     setFabricCanvas(canvas);
 
@@ -58,8 +173,13 @@ export const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>
   useEffect(() => {
     if (!fabricCanvas || generatedRooms.length === 0) return;
 
-    // Clear all existing objects
-    fabricCanvas.clear();
+    // Clear existing objects except free drawings
+    const objects = fabricCanvas.getObjects();
+    objects.forEach(obj => {
+      if (obj.type !== 'path') { // Keep free drawings (paths)
+        fabricCanvas.remove(obj);
+      }
+    });
 
     // Generate and add room rectangles (using feet scale)
     const layoutRooms = generateBasicLayout(generatedRooms, GRID_FT, GRID_FT);
@@ -76,7 +196,7 @@ export const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>
         fill: `${room.color}40`, // Semi-transparent fill
         stroke: room.color,
         strokeWidth: 2,
-        selectable: false,
+        selectable: true,
       });
 
       // Add room label
@@ -89,7 +209,7 @@ export const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>
         textAlign: "center",
         originX: "center",
         originY: "center",
-        selectable: false,
+        selectable: true,
       });
 
       fabricCanvas.add(rect);
@@ -99,7 +219,116 @@ export const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>
     fabricCanvas.renderAll();
   }, [fabricCanvas, generatedRooms]);
 
-  // Canvas is now read-only - no drawing tools needed
+  // Update drawing mode based on active tool
+  useEffect(() => {
+    if (!fabricCanvas) return;
+
+    fabricCanvas.isDrawingMode = activeTool === "pen";
+    fabricCanvas.selection = activeTool !== "pen";
+    (fabricCanvas as any).skipTargetFind = activeTool === "pen";
+    
+    if (fabricCanvas.freeDrawingBrush) {
+      fabricCanvas.freeDrawingBrush.color = "#2563eb";
+      fabricCanvas.freeDrawingBrush.width = 3;
+      (fabricCanvas.freeDrawingBrush as any).decimate = 2;
+    }
+  }, [activeTool, fabricCanvas]);
+
+  // Handle shape creation
+  useEffect(() => {
+    if (!fabricCanvas) return;
+
+    const handleMouseDown = (e: any) => {
+      if (activeTool === "select" || activeTool === "pen") return;
+
+      const pointer = fabricCanvas.getPointer(e.e);
+      
+      switch (activeTool) {
+        case "rectangle":
+          const rect = new Rect({
+            left: pointer.x,
+            top: pointer.y,
+            width: 100,
+            height: 60,
+            fill: "transparent",
+            stroke: "#d97706",
+            strokeWidth: 2,
+          });
+          fabricCanvas.add(rect);
+          fabricCanvas.setActiveObject(rect);
+          setTimeout(() => onCanvasChange(JSON.stringify(fabricCanvas.toJSON())), 10);
+          break;
+
+        case "circle":
+          const circle = new Circle({
+            left: pointer.x,
+            top: pointer.y,
+            radius: 40,
+            fill: "transparent",
+            stroke: "#dc2626",
+            strokeWidth: 2,
+          });
+          fabricCanvas.add(circle);
+          fabricCanvas.setActiveObject(circle);
+          setTimeout(() => onCanvasChange(JSON.stringify(fabricCanvas.toJSON())), 10);
+          break;
+
+        case "line":
+          const line = new Line([pointer.x, pointer.y, pointer.x + 100, pointer.y], {
+            stroke: "#059669",
+            strokeWidth: 2,
+          });
+          fabricCanvas.add(line);
+          fabricCanvas.setActiveObject(line);
+          setTimeout(() => onCanvasChange(JSON.stringify(fabricCanvas.toJSON())), 10);
+          break;
+
+        case "text":
+          const text = new IText("Room Label", {
+            left: pointer.x,
+            top: pointer.y,
+            fontSize: 16,
+            fill: "#1f2937",
+            fontFamily: "Arial",
+          });
+          fabricCanvas.add(text);
+          fabricCanvas.setActiveObject(text);
+          text.enterEditing();
+          setTimeout(() => onCanvasChange(JSON.stringify(fabricCanvas.toJSON())), 10);
+          break;
+      }
+
+      fabricCanvas.renderAll();
+    };
+
+    fabricCanvas.on("mouse:down", handleMouseDown);
+
+    return () => {
+      fabricCanvas.off("mouse:down", handleMouseDown);
+    };
+  }, [activeTool, fabricCanvas]);
+
+  // Handle undo/redo (avoid reloading when state is already current)
+  useEffect(() => {
+    if (!fabricCanvas || canvasHistory.length === 0 || historyIndex < 0) return;
+
+    const historyState = canvasHistory[historyIndex];
+    if (!historyState) return;
+
+    try {
+      const currentState = JSON.stringify(fabricCanvas.toJSON());
+      if (currentState === historyState) {
+        // No-op: already at this state, prevents unnecessary clear/reload flicker
+        return;
+      }
+
+      fabricCanvas.loadFromJSON(JSON.parse(historyState), () => {
+        fabricCanvas.renderAll();
+      });
+    } catch (e) {
+      console.warn('Failed to load canvas history state', e);
+    }
+  }, [fabricCanvas, canvasHistory, historyIndex]);
 
   // Draw grid like graph paper with feet measurements (matching reference)
   const drawGrid = (zoom: number) => {
